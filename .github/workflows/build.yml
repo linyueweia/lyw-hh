@@ -127,8 +127,8 @@ jobs:
             || { echo "!! kernel-config 扩展缺钩子"; exit 1; }
           grep -q 'ROCEOS_PAYLOAD_SHA256' build/userpatches/extensions/lyw-hh-roceos.sh \
             || { echo "!! roceos 扩展缺载荷指纹"; exit 1; }
-          grep -q 'ConditionPathExists=/opt/roceos-ai/model.conf' build/userpatches/extensions/lyw-hh-roceos.sh \
-            || { echo "!! roceos 扩展缺 AI 模型门禁"; exit 1; }
+          grep -q 'RestartPreventExitStatus' build/userpatches/extensions/lyw-hh-roceos.sh \
+            || { echo "!! roceos 扩展缺 AI 无模型语义"; exit 1; }
 
       # ── 网口口径判据（秒级；把"最后一分钟才红"提前到构建前）──────────────
       - name: Lint NIC eth_order policy (adapted)
@@ -146,7 +146,13 @@ jobs:
           URL="https://github.com/linyueweia/lyw-OS/releases/download/roceos-payload-v1/roceos-payload.tar.gz"
           curl -fsSL -o build/userpatches/overlay/roceos-payload.tar.gz "$URL"
           echo "6b819584a1b1701163f8983bd59a31821643f64dd65c76ba8f500ef54c5e8bb5  build/userpatches/overlay/roceos-payload.tar.gz" | sha256sum -c -
-          ls -l build/userpatches/overlay/
+          # roceos-ai 的官方新版（取自 iNextOSA_26.2.1_Easepi-r2 镜像）：
+          # server.py 缺模型时退出 3 + unit 的 RestartPreventExitStatus=3
+          mkdir -p build/userpatches/overlay/roceos-ai
+          cp -v hh/files/roceos-ai/server.py hh/files/roceos-ai/roceos-ai.service build/userpatches/overlay/roceos-ai/
+          echo "30560d7c925acad92c50784ada936768326ea4cb15ea4825f2b48d8ede8ee36b  build/userpatches/overlay/roceos-ai/server.py" | sha256sum -c -
+          echo "4185abc7fbfea9488739a5e1c81ebc50a3715cddb3ba163a08bd0141140a0ef5  build/userpatches/overlay/roceos-ai/roceos-ai.service" | sha256sum -c -
+          ls -l build/userpatches/overlay/ build/userpatches/overlay/roceos-ai/
 
       - name: Set up QEMU (binfmt_misc for arm64 cross-build)
         uses: docker/setup-qemu-action@v3

@@ -1,0 +1,22 @@
+[Unit]
+Description=iNextOS Local AI Inference Server (RK3588 NPU)
+# 只排序不依赖：Wants=roceos.service 会让本服务每次重启都把后端一起拉起，
+# OTA 停服换二进制期间旧后端被提前拉起，导致升级假成功
+After=network.target roceos.service
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /opt/roceos-ai/server.py
+Environment=RKLLM_LIB=/opt/roceos-ai/librkllmrt.so
+Environment=RKLLM_CONFIG=/opt/roceos-ai/model.conf
+Environment=RKLLM_PORT=8686
+WorkingDirectory=/opt/roceos-ai
+Restart=on-failure
+RestartSec=5
+# server.py 在未下载模型时以 3 退出，此时重启没有意义；下载完成后由后端主动 start
+RestartPreventExitStatus=3
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

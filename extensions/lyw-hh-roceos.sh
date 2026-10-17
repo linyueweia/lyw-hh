@@ -54,11 +54,21 @@ function post_post_debootstrap_tweaks__lyw_hh_roceos() {
 		fi
 	done
 
-	# ── H88K 加固：roceos-ai 缺模型时不进崩溃循环 ──────────────
-	local aiunit="${SDCARD}/etc/systemd/system/roceos-ai.service"
-	if [[ -f "$aiunit" ]] && ! grep -q '^ConditionPathExists=' "$aiunit"; then
-		sed -i '/^\[Unit\]/a ConditionPathExists=/opt/roceos-ai/model.conf' "$aiunit"
-	fi
+	# ── roceos-ai：换用官方（Easepi-r2 26.2.1）的"无模型即退出 3"语义 ──────
+	# 官方镜像里同样没有模型文件：server.py 在缺模型时 sys.exit(3)，unit 里写
+	# RestartPreventExitStatus=3 → systemd 不重启；模型由后端下载完成后主动拉起。
+	# 而 H88K 26.2.1 载荷里那份 server.py 是 sys.exit(1) + Restart=on-failure
+	# → 每 5 秒崩一次（实机 NRestarts=206）。两份文件取自官方镜像实测，
+	# sha256 钉死；内容一变就构建失败。
+	local aifiles="${USERPATCHES_PATH}/overlay/roceos-ai"
+	[[ -f "${aifiles}/server.py" && -f "${aifiles}/roceos-ai.service" ]] \
+		|| exit_with_error "roceos-ai 官方文件缺失: ${aifiles}（workflow 需从 repo/files/roceos-ai 拷入 overlay）"
+	echo "30560d7c925acad92c50784ada936768326ea4cb15ea4825f2b48d8ede8ee36b  ${aifiles}/server.py" | sha256sum -c - \
+		|| exit_with_error "roceos-ai server.py 与官方不一致"
+	echo "4185abc7fbfea9488739a5e1c81ebc50a3715cddb3ba163a08bd0141140a0ef5  ${aifiles}/roceos-ai.service" | sha256sum -c - \
+		|| exit_with_error "roceos-ai.service 与官方不一致"
+	install -m 0755 "${aifiles}/server.py" "${SDCARD}/opt/roceos-ai/server.py"
+	install -m 0644 "${aifiles}/roceos-ai.service" "${SDCARD}/etc/systemd/system/roceos-ai.service"
 
 	# ── nginx 站点与证书（default 站点必须移除：与 roceos.conf 抢 default_server）──
 	mkdir -p "${SDCARD}/etc/nginx/ssl" "${SDCARD}/etc/nginx/sites-available" "${SDCARD}/etc/nginx/sites-enabled"
@@ -150,8 +160,12 @@ function post_post_debootstrap_tweaks__lyw_hh_roceos() {
 	[[ -L "${SDCARD}/etc/nginx/sites-enabled/roceos.conf" ]] || { display_alert "nginx site not enabled" "$EXTENSION" "err"; fail=1; }
 	[[ -e "${SDCARD}/etc/nginx/sites-enabled/default" ]] && { display_alert "default site still present" "$EXTENSION" "err"; fail=1; }
 	[[ -f "${SDCARD}/etc/apt/preferences.d/10-inextos-firmware-conflict" ]] || { display_alert "apt pin file missing" "$EXTENSION" "err"; fail=1; }
-	grep -q '^ConditionPathExists=/opt/roceos-ai/model.conf' "${SDCARD}/etc/systemd/system/roceos-ai.service" 2>/dev/null || \
-		{ display_alert "roceos-ai has no model guard (would crash-loop on stock image)" "$EXTENSION" "err"; fail=1; }
+	grep -q '^RestartPreventExitStatus=3' "${SDCARD}/etc/systemd/system/roceos-ai.service" 2>/dev/null || \
+		{ display_alert "roceos-ai 缺 RestartPreventExitStatus=3（无模型时会每 5 秒崩溃）" "$EXTENSION" "err"; fail=1; }
+	grep -q '^Wants=roceos.service' "${SDCARD}/etc/systemd/system/roceos-ai.service" 2>/dev/null && \
+		{ display_alert "roceos-ai 仍有 Wants=roceos.service（官方已移除：会让 OTA 假成功）" "$EXTENSION" "err"; fail=1; }
+	grep -q 'sys.exit(3)' "${SDCARD}/opt/roceos-ai/server.py" 2>/dev/null || \
+		{ display_alert "roceos-ai server.py 不是官方新版（缺 exit(3) 语义）" "$EXTENSION" "err"; fail=1; }
 	[[ $fail == 0 ]] || exit_with_error "H88K roceos customization self-check failed"
 
 	display_alert "roceos web UI installed and enabled (Hinlink H88K)" "$EXTENSION" "info"

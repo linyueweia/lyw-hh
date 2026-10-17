@@ -113,9 +113,12 @@ done
 for s in roceos.service roceos-ai.service roceos-vision.service; do
 	[[ -L "$MNT/etc/systemd/system/multi-user.target.wants/$s" ]] && ok "wants: $s" || bad "缺 wants 链接 $s"
 done
-grep -q '^ConditionPathExists=/opt/roceos-ai/model.conf' "$MNT/etc/systemd/system/roceos-ai.service" 2>/dev/null \
-	&& ok "roceos-ai 有模型门禁（不会崩溃循环）" \
-	|| bad "roceos-ai 缺模型门禁（缺模型时会每 5 秒崩溃）"
+grep -q '^RestartPreventExitStatus=3' "$MNT/etc/systemd/system/roceos-ai.service" 2>/dev/null \
+	&& ok "roceos-ai 无模型时退出 3 不被重启（官方语义）" \
+	|| bad "roceos-ai 缺 RestartPreventExitStatus=3（缺模型会每 5 秒崩溃）"
+grep -q 'sys.exit(3)' "$MNT/opt/roceos-ai/server.py" 2>/dev/null \
+	&& ok "roceos-ai server.py 为官方新版（exit 3）" \
+	|| bad "roceos-ai server.py 是旧版（exit 1 → 崩溃循环）"
 
 echo "== 5. 管理地址 + 前面板 LED 守护 =="
 if [[ -x "$MNT/usr/local/sbin/h88k-admin-ip.sh" ]]; then
