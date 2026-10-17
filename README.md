@@ -60,24 +60,33 @@ GitHub Actions，两种档位（`workflow_dispatch`）：
 ## 判据（构建前 + 构建后同一份代码）
 
 ```bash
-# 构建前：仓库默认值
+# 构建前：仓库默认值（期望口序只从 csc 的 LYW_HH_ETH_ORDER 读，判据里不抄第二份）
 python3 tools/net-pin-check.py --src config/boards/hinlink-h88k.csc
-bash tools/tests/net-pin-check-test.sh          # 14 例负例自测
+bash tools/tests/net-pin-check-test.sh          # 16 例负例自测
+
+# 构建前：镜像布局探测自测（微型镜像：单分区 / 双分区 / 不像 rootfs / 随机字节）
+sudo bash tools/tests/layout-probe-test.sh
 
 # 构建后：镜像内落盘值
-sudo bash tools/verify-image.sh output/images/*.img
+sudo bash tools/verify-image.sh output/images/*.img      # 完整自证
+sudo bash tools/verify-image.sh --probe output/images/*.img   # 只探测布局
 ```
 
 `verify-image.sh` **只断言本仓改过的地方**：静态口序、时钟、roceos 载荷、roceos-ai 语义、管理地址+LED 守护、命名反断言。官方默认值（DTB/cma/内核符号等）一律不断言。
+
+**布局**：本板 csc 没声明 `BOOTFS_TYPE`，构建产物是**单分区**（p1 = rootfs ext4，引导文件在 rootfs 的 `/boot`），与官方 H88K 镜像同构；只有声明了 `BOOTFS_TYPE` 的板才是 `bootfs + rootfs` 双分区。自证脚本**枚举分区 + blkid 判定**，两种布局都支持；挂上的分区不像 rootfs（缺 `/etc` `/usr`）就立刻判红并打印分区表。
+
+> 历史：run #6 就是因为自证写死「p1=bootfs / p2=rootfs」，在单分区镜像上第一行就 `exit 1`（镜像其实已编好并上传，但一条断言都没跑）。
 
 ## 目录
 
 ```
 config/boards/hinlink-h88k.csc     上游 csc 的加法版（静态口序）
-extensions/lyw-hh-net.sh           管理地址守护 + 前面板 LED + cma 官方口径断言
+extensions/lyw-hh-net.sh           管理地址守护 + 前面板 LED
 extensions/lyw-hh-clock.sh         mask fake-hwclock-load（JWT 立刻过期的根因）
-extensions/lyw-hh-roceos.sh        roceos 载荷注入 + AI 模型门禁
-tools/net-pin-check.py             网口口径唯一判据（--src / --conf）
-tools/verify-image.sh              镜像自证
+extensions/lyw-hh-roceos.sh        roceos 载荷注入 + AI 无模型语义
+tools/net-pin-check.py             网口口径唯一判据（--src / --conf，期望值只来自 csc）
+tools/verify-image.sh              镜像自证（分区布局自适应，支持 --probe）
+tools/tests/                       负例自测：网口口径 16 例 + 布局探测 4 例
 docs/H88K-适配工作流与判据.md      全部证据链与实机数据
 ```

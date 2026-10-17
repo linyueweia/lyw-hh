@@ -61,12 +61,15 @@ function post_family_tweaks__lyw_hh_h88k_static_eth_order() {
 	display_alert "$BOARD" "Pinning static /etc/eth_order (eth0/eth1=2.5G, eth2=Gigabit)" "info"
 
 	install -d -m 0755 "${SDCARD}/etc"
-	printf '%s\n' '0004:41:00.0,0003:31:00.0,fe1b0000.ethernet' > "${SDCARD}/etc/eth_order"
+	# 口序字面量只在这里出现一次（判据 tools/net-pin-check.py 直接读这一行，
+	# 不再另抄一份期望值 —— lyw-rr run #14 就是被"第二份字面量"坑掉 117 分钟）。
+	LYW_HH_ETH_ORDER="0004:41:00.0,0003:31:00.0,fe1b0000.ethernet"
+	printf '%s\n' "$LYW_HH_ETH_ORDER" > "${SDCARD}/etc/eth_order"
 
-	# 自证：写进去的就是三段的静态值，且不含厂商脚本会生成的那种"猜测顺序"
+	# 自证：写进去的就是声明的静态值，且不含厂商脚本会生成的那种"猜测顺序"
 	local order
 	order="$(cat "${SDCARD}/etc/eth_order")"
-	[[ "$order" == "0004:41:00.0,0003:31:00.0,fe1b0000.ethernet" ]] \
+	[[ "$order" == "$LYW_HH_ETH_ORDER" ]] \
 		|| exit_with_error "eth_order 写入内容异常: ${order}"
 
 	return 0

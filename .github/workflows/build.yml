@@ -38,8 +38,9 @@ jobs:
         id: cmp
         run: |
           set -eu
-          UP=$(curl -fsSL -H "Authorization: Bearer ${{ github.token }}" \
-            -H "Accept: application/vnd.github+json" \
+          # 公开仓库，不需要 token；这里也不用 ${{ secrets.* }}，避免表达式被脱敏后
+          # 残留成本地文件里的垃圾（曾经出现过 `Bearer *** github.token }}` 这种写法）
+          UP=$(curl -fsSL -H "Accept: application/vnd.github+json" \
             "https://api.github.com/repos/jjm2473/armbian-easepi/branches/easepi-v26.02" \
             | python3 -c 'import json,sys; print(json.load(sys.stdin)["commit"]["sha"])')
           OLD=$(cat last-upstream-sha 2>/dev/null | tr -d '\n' || echo none)
@@ -138,6 +139,14 @@ jobs:
           set -e
           python3 hh/tools/net-pin-check.py --src hh/config/boards/hinlink-h88k.csc
           bash hh/tools/tests/net-pin-check-test.sh
+
+      # ── 镜像布局探测自测（秒级；把「写死双分区」这类错提前到构建前）────────
+      - name: Self-test image layout probe (adapted)
+        if: github.event.inputs.profile != 'official'
+        run: |
+          set -e
+          command -v mkfs.vfat >/dev/null 2>&1 || { sudo apt-get update -qq; sudo apt-get install -y -qq dosfstools; }
+          sudo bash hh/tools/tests/layout-probe-test.sh
 
       - name: Fetch roceos web-UI payload into userpatches/overlay (adapted)
         if: github.event.inputs.profile != 'official'
