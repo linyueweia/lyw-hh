@@ -119,8 +119,12 @@ jobs:
           chmod +x build/userpatches/extensions/*.sh
           ls -l build/userpatches/extensions/
           # 框架只加载【可执行】的扩展；权限不对会被静默跳过（"Found 0 extensions"）
-          for fn in lyw_hh_roceos lyw_hh_net lyw_hh_clock lyw_hh_board_symbols; do
+          for fn in lyw_hh_roceos lyw_hh_admin_ip lyw_hh_clock lyw_hh_board_symbols; do
             grep -rq "$fn" build/userpatches/extensions/ || { echo "!! 扩展函数缺失: $fn"; exit 1; }
+          done
+          # 每个扩展文件至少要定义一个框架能调用的钩子（post_/pre_/custom_ 前缀）
+          for f in build/userpatches/extensions/lyw-hh-*.sh; do
+            grep -qE '^function (post_|pre_|custom_)' "$f" || { echo "!! $f 里没有任何钩子函数"; exit 1; }
           done
           grep -q 'custom_kernel_config__lyw_hh_board_symbols' \
             build/userpatches/extensions/lyw-hh-kernel-config.sh \
