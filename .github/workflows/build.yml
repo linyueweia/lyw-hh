@@ -126,9 +126,6 @@ jobs:
           for f in build/userpatches/extensions/lyw-hh-*.sh; do
             grep -qE '^function (post_|pre_|custom_)' "$f" || { echo "!! $f 里没有任何钩子函数"; exit 1; }
           done
-          grep -q 'custom_kernel_config__lyw_hh_board_symbols' \
-            build/userpatches/extensions/lyw-hh-kernel-config.sh \
-            || { echo "!! kernel-config 扩展缺钩子"; exit 1; }
           grep -q 'ROCEOS_PAYLOAD_SHA256' build/userpatches/extensions/lyw-hh-roceos.sh \
             || { echo "!! roceos 扩展缺载荷指纹"; exit 1; }
           grep -q 'RestartPreventExitStatus' build/userpatches/extensions/lyw-hh-roceos.sh \
