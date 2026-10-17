@@ -139,6 +139,7 @@ jobs:
           set -e
           python3 hh/tools/net-pin-check.py --src hh/config/boards/hinlink-h88k.csc
           bash hh/tools/tests/net-pin-check-test.sh
+          bash hh/tools/tests/admin-ip-iface-test.sh
 
       # ── 镜像布局探测自测（秒级；把「写死双分区」这类错提前到构建前）────────
       - name: Self-test image layout probe (adapted)

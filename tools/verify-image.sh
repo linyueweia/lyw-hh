@@ -241,6 +241,11 @@ if [[ -x "$ADMIN" ]]; then
 	grep -q 'blue:net/trigger' "$ADMIN" && ok "驱动 blue:net" || bad "脚本不驱动 blue:net"
 	grep -q 'amber:sata/trigger' "$ADMIN" && ok "驱动 amber:sata" || bad "脚本不驱动 amber:sata"
 	grep -q 'br-lan1' "$ADMIN" && ok "LED 绑 LAN 桥（br-lan1）" || bad "脚本未把 blue:net 绑到 br-lan1"
+	if grep -q 'pick_iface eth2' "$ADMIN" && grep -q 'class/net/\$1/master' "$ADMIN"; then
+		ok "选口逻辑已修（先判 master 是否存在，eth2 不在桥里也加得上地址）"
+	else
+		bad "管理地址守护仍是旧 readlink -f 逻辑（eth2 不在桥里时 192.168.100.1 永远加不上）"
+	fi
 else
 	bad "缺 /usr/local/sbin/h88k-admin-ip.sh"
 fi

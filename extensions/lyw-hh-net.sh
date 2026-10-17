@@ -22,20 +22,32 @@ function post_family_tweaks__lyw_hh_admin_ip_and_leds() {
 	cat > "${SDCARD}/usr/local/sbin/h88k-admin-ip.sh" <<'EOS'
 #!/bin/sh
 # H88K: 保持管理地址 192.168.100.1 在千兆口(或其桥)上 + 前面板 LED 触发器
-L=/sys/class/leds
+# 坑（2026-10-17 实机）：不能写 `m=$(readlink -f /sys/class/net/$t/master)` 再判非空 ——
+# readlink -f 对不存在的 master 也会输出路径，于是 t 变成 "master"，ip addr add 静默失败，
+# 地址永远加不上（eth2 不在桥里时必现）。必须先判 -e。
+SYSFS=${H88K_SYSFS:-/sys}
+L=$SYSFS/class/leds
 echo netdev >$L/blue:net/trigger 2>/dev/null
 echo heartbeat >$L/green:user/trigger 2>/dev/null
 echo disk-activity >$L/amber:sata/trigger 2>/dev/null
 echo eth0 >$L/blue:net/device_name 2>/dev/null
 echo 1 >$L/blue:net/link 2>/dev/null
+
+# 选口：eth2 在桥里就用桥名，否则用它自己
+pick_iface() {
+	if [ -e "$SYSFS/class/net/$1/master" ]; then
+		readlink -f "$SYSFS/class/net/$1/master" | sed 's#.*/##'
+	else
+		echo "$1"
+	fi
+}
+
 while :; do
-	[ -d /sys/class/net/br-lan1 ] && {
+	if [ -d "$SYSFS/class/net/br-lan1" ]; then
 		[ "$(cat $L/blue:net/device_name 2>/dev/null)" != br-lan1 ] && echo br-lan1 >$L/blue:net/device_name
 		for x in link rx tx; do echo 1 >$L/blue:net/$x; done
-	}
-	t=eth2
-	m=$(readlink -f /sys/class/net/$t/master 2>/dev/null)
-	[ -n "$m" ] && t=${m##*/}
+	fi
+	t=$(pick_iface eth2)
 	ip -4 addr show dev "$t" 2>/dev/null | grep -q 192.168.100.1/ || {
 		ip link set "$t" up 2>/dev/null
 		ip addr add 192.168.100.1/24 dev "$t" 2>/dev/null
@@ -75,6 +87,8 @@ function post_customize_image__lyw_hh_admin_ip_selfcheck() {
 	grep -q '192\.168\.100\.1' "$s" || { display_alert "script does not manage 192.168.100.1" "$EXTENSION" "err"; fail=1; }
 	grep -q 'blue:net/trigger' "$s" || { display_alert "script does not drive blue:net" "$EXTENSION" "err"; fail=1; }
 	grep -q 'amber:sata/trigger' "$s" || { display_alert "script does not drive amber:sata" "$EXTENSION" "err"; fail=1; }
+	grep -q 'pick_iface eth2' "$s" || { display_alert "script lacks pick_iface (旧 readlink -f 写法会把 t 变成 master)" "$EXTENSION" "err"; fail=1; }
+	grep -q 'class/net/\$1/master' "$s" || { display_alert "pick_iface 没先判 master 是否存在" "$EXTENSION" "err"; fail=1; }
 	grep -q 'while :' "$s" || { display_alert "script is not a persistent loop" "$EXTENSION" "err"; fail=1; }
 	sh -n "$s" 2>/dev/null || { display_alert "admin-ip script has shell syntax error" "$EXTENSION" "err"; fail=1; }
 

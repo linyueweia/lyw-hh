@@ -63,6 +63,7 @@ GitHub Actions，两种档位（`workflow_dispatch`）：
 # 构建前：仓库默认值（期望口序只从 csc 的 LYW_HH_ETH_ORDER 读，判据里不抄第二份）
 python3 tools/net-pin-check.py --src config/boards/hinlink-h88k.csc
 bash tools/tests/net-pin-check-test.sh          # 16 例负例自测
+bash tools/tests/admin-ip-iface-test.sh         # 管理地址守护选口逻辑（无桥→eth2 / 有桥→br-lan1）
 
 # 构建前：镜像布局探测自测（微型镜像：单分区 / 双分区 / 不像 rootfs / 随机字节）
 sudo bash tools/tests/layout-probe-test.sh
