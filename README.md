@@ -12,7 +12,7 @@
 | 3 | 前面板系统灯不亮 | DTS 四个 LED 节点里只有 `work` 带 `linux,default-trigger`，`net/sata/user` 没有默认触发器 | `h88k-admin-ip.service` 守护设置 `blue:net=netdev(br-lan1)`、`green:user=heartbeat`、`amber:sata=disk-activity` |
 | 4 | 后台每 5 秒崩一次（`NRestarts=206`） | 26.2.1 载荷里 `server.py` 缺模型时 `sys.exit(1)` + `Restart=on-failure` → 无限重启；官方 **Easepi-r2** 新版改为 `sys.exit(3)` + unit `RestartPreventExitStatus=3` | 用官方那两份文件覆盖载荷（sha256 钉死），与官方行为一致 |
 
-另外保持用户口径：`192.168.100.1` 常驻千兆口（或其桥），`cma=1G`，EEE 不动（官方默认）。
+另外保持官方口径：`192.168.100.1` 常驻千兆口（或其桥），`cma=256M`（与官方 Easepi-r2 镜像一致），EEE 不动（官方默认）。
 
 ## AI 服务：官方镜像里同样没有模型（实测）
 
@@ -74,7 +74,7 @@ sudo bash tools/verify-image.sh output/images/*.img
 
 ```
 config/boards/hinlink-h88k.csc     上游 csc 的加法版（静态口序）
-extensions/lyw-hh-net.sh           管理地址守护 + 前面板 LED + cma=1G
+extensions/lyw-hh-net.sh           管理地址守护 + 前面板 LED + cma 官方口径断言
 extensions/lyw-hh-clock.sh         mask fake-hwclock-load（JWT 立刻过期的根因）
 extensions/lyw-hh-roceos.sh        roceos 载荷注入 + AI 模型门禁
 extensions/lyw-hh-kernel-config.sh 内核符号钉死（R8125 / STMMAC / DWMAC / LEDS）

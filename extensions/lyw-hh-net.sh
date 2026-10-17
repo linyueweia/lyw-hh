@@ -63,17 +63,18 @@ EOS
 	return 0
 }
 
-function post_customize_image__lyw_hh_cma_1g() {
-	# 用户镜像里把 cma 从 256M 调到 1G（NPU/多媒体想用大块连续内存），本仓保持同一口径。
+function post_customize_image__lyw_hh_cma_parity() {
+	# cma 与官方对齐：官方 iNextOSA_26.2.1_Easepi-r2 的 armbianEnv.txt 是 extraargs=cma=256M，
+	# H88K 运行系统实测也是 256M。这里只做"不得被改动"的断言 —— 不主动改值
+	# （曾经把它提到 1G，属于我们自己加的，用户要求按官方来）。
 	local envf="${SDCARD}/boot/armbianEnv.txt"
-	[[ -f "$envf" ]] || { display_alert "armbianEnv.txt not found, skip cma" "$EXTENSION" "warn"; return 0; }
-	if grep -qE '^extraargs=.*cma=' "$envf"; then
-		sed -i -E 's/(^extraargs=.*)cma=[0-9]+[MG]/\1cma=1G/' "$envf"
+	[[ -f "$envf" ]] || { display_alert "armbianEnv.txt not found, skip cma check" "$EXTENSION" "warn"; return 0; }
+	if grep -qE 'cma=[0-9]+[MG]' "$envf"; then
+		grep -qE 'cma=256M([[:space:]]|$)' "$envf" 			|| exit_with_error "cma 不是官方口径 256M: $(grep -oE 'cma=[0-9]+[MG]' "$envf" | head -1)"
+		display_alert "armbianEnv.txt cma=256M（与官方 R2 一致）" "$EXTENSION" "info"
 	else
-		sed -i -E 's/^extraargs=(.*)$/extraargs=\1 cma=1G/' "$envf"
+		display_alert "armbianEnv.txt 未显式给 cma（走内核默认 256M）" "$EXTENSION" "warn"
 	fi
-	grep -q 'cma=1G' "$envf" || exit_with_error "cma=1G 未能写入 armbianEnv.txt"
-	display_alert "armbianEnv.txt cma=1G" "$EXTENSION" "info"
 	return 0
 }
 
