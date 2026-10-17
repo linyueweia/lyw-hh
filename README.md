@@ -1,0 +1,68 @@
+# lyw-hh — Hinlink H88K（RK3588）iNextOS 仓库化构建
+
+从上游框架 [jjm2473/armbian-easepi @ easepi-v26.02](https://github.com/jjm2473/armbian-easepi)
+编译 H88K 的 iNextOS 镜像，并把**用户实机 192.168.10.90 上验证过的四处修正**固化成代码。
+
+官方镜像（`iNextOSA_26.2.1_H88K_trixie_vendor_6.1.115.img`）刷上去有四个问题，本仓全部修掉：
+
+| # | 现象 | 根因 | 本仓修法 |
+|---|------|------|----------|
+| 1 | 网口顺序反了（ETH0↔ETH2） | 厂商 `gen-eth-order.sh` 按「平台口优先 + PCIe 字典序」猜顺序，上游 csc 里没有任何口序代码 | 板级 csc 写死静态 `/etc/eth_order`：`eth0=0004:41(2.5G) eth1=0003:31(2.5G) eth2=fe1b0000(千兆)` |
+| 2 | 进后台一下就退出 | `/etc/fake-hwclock.data` 是构建日期（2026-08-26），开机覆盖 RTC → roceos JWT 一签发就过期 | `mask` 掉 `fake-hwclock-load.service`，`.data` 写构建时刻 |
+| 3 | 前面板系统灯不亮 | DTS 四个 LED 节点里只有 `work` 带 `linux,default-trigger`，`net/sata/user` 没有默认触发器 | `h88k-admin-ip.service` 守护设置 `blue:net=netdev(br-lan1)`、`green:user=heartbeat`、`amber:sata=disk-activity` |
+| 4 | 后台每 5 秒崩一次 | `roceos-ai.service` 依赖的 `model.conf/.rkllm` 官方镜像里没有 | unit 加 `ConditionPathExists=/opt/roceos-ai/model.conf`（模型补上即自动启用） |
+
+另外保持用户口径：`192.168.100.1` 常驻千兆口（或其桥），`cma=1G`，EEE 不动（官方默认）。
+
+## 网口灯规律（实测定案，别再当故障）
+
+| 口 | 芯片 | 100M | 1G | 2.5G |
+|----|------|------|----|------|
+| eth0/eth1 | RTL8125（2.5G） | 灭 | 亮 | 亮 |
+| eth2 | RTL8211F（千兆） | 亮 | 亮 | — |
+
+RJ45 灯由 PHY 自己驱动，DTS 里没有网口 LED 节点，`r8125` 也没有 LED 参数 —— 软件改不了，
+亮/灭只反映链路速率。想看"任意速率都有链路指示"用前面板 `blue:net`（已绑 LAN 桥，谁有流量都闪）。
+
+## 构建
+
+GitHub Actions，两种档位（`workflow_dispatch`）：
+
+- `adapted`（默认）：本仓适配层，产物＝和实机同行为的镜像
+- `official`：纯上游 + istorenext，一行不改，用来做对照（口序反/后台退/灯灭都是它的原状）
+
+```bash
+./compile.sh build BOARD=hinlink-h88k BRANCH=vendor RELEASE=trixie \
+  ENABLE_EXTENSIONS="istorenext,lyw-hh-roceos,lyw-hh-kernel-config,lyw-hh-net,lyw-hh-clock" \
+  BUILD_MINIMAL=no BUILD_DESKTOP=no KERNEL_CONFIGURE=no \
+  COMPRESS_OUTPUTIMAGE="sha,img,xz" SHARE_LOG=yes EXPERT=yes
+```
+
+参考基线：运行系统内核 `6.1.115-vendor-rk35xx`，`CONFIG_R8125=m / STMMAC_ETH=y / DWMAC_ROCKCHIP=y /
+LEDS_TRIGGER_NETDEV=y`（`lyw-hh-kernel-config` 会把这些钉死并在 Kconfig 入口点名，改名即构建失败）。
+
+## 判据（构建前 + 构建后同一份代码）
+
+```bash
+# 构建前：仓库默认值
+python3 tools/net-pin-check.py --src config/boards/hinlink-h88k.csc
+bash tools/tests/net-pin-check-test.sh          # 14 例负例自测
+
+# 构建后：镜像内落盘值
+sudo bash tools/verify-image.sh output/images/*.img
+```
+
+`verify-image.sh` 断言七组：引导/DTB、口序、时钟、roceos 后台、管理地址+LED 守护、内核驱动、反断言（无 wan1/lan1/lan2 残留）。
+
+## 目录
+
+```
+config/boards/hinlink-h88k.csc     上游 csc 的加法版（静态口序）
+extensions/lyw-hh-net.sh           管理地址守护 + 前面板 LED + cma=1G
+extensions/lyw-hh-clock.sh         mask fake-hwclock-load（JWT 立刻过期的根因）
+extensions/lyw-hh-roceos.sh        roceos 载荷注入 + AI 模型门禁
+extensions/lyw-hh-kernel-config.sh 内核符号钉死（R8125 / STMMAC / DWMAC / LEDS）
+tools/net-pin-check.py             网口口径唯一判据（--src / --conf）
+tools/verify-image.sh              镜像自证
+docs/H88K-适配工作流与判据.md      全部证据链与实机数据
+```

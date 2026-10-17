@@ -1,0 +1,206 @@
+name: Build iNextOS for Hinlink H88K
+
+# 两档 profile（手动触发时选择）：
+#   adapted  —— 本仓适配层：上游框架 + 覆盖板级 csc（静态口序）+ 时钟/后台/LED 修正。
+#               默认档，产物＝"和用户实机 192.168.10.90 同一套行为"的镜像。
+#   official —— 纯官方基线：上游 hinlink-h88k.csc + istorenext，一行都不改。
+#               用途＝权威对照物（口序会反、后台登录即退、前面板灯全灭 —— 都是官方原状）。
+on:
+  workflow_dispatch:
+    inputs:
+      profile:
+        description: '构建档位'
+        required: true
+        default: adapted
+        type: choice
+        options:
+          - adapted
+          - official
+  push:
+    branches: [ main ]
+    paths-ignore:
+      - 'last-upstream-sha'
+  schedule:
+    - cron: '0 19 * * *'   # 每日 03:00 CST 检查上游更新（仅当上游变更时才构建）
+
+jobs:
+  upstream:
+    name: Check upstream framework (armbian-easepi)
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    outputs:
+      changed: ${{ steps.cmp.outputs.changed }}
+      sha: ${{ steps.cmp.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compare upstream HEAD with recorded sha
+        id: cmp
+        run: |
+          set -eu
+          UP=$(curl -fsSL -H "Authorization: Bearer ${{ github.token }}" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/jjm2473/armbian-easepi/branches/easepi-v26.02" \
+            | python3 -c 'import json,sys; print(json.load(sys.stdin)["commit"]["sha"])')
+          OLD=$(cat last-upstream-sha 2>/dev/null | tr -d '\n' || echo none)
+          echo "上游 easepi-v26.02 HEAD : $UP"
+          echo "本仓库记录的指纹       : $OLD"
+          if [ "$UP" = "$OLD" ]; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true"  >> "$GITHUB_OUTPUT"
+            echo "sha=$UP"       >> "$GITHUB_OUTPUT"
+          fi
+      - name: Record new upstream sha
+        if: steps.cmp.outputs.changed == 'true'
+        run: |
+          set -eu
+          echo "${{ steps.cmp.outputs.sha }}" > last-upstream-sha
+          git config user.name  'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add last-upstream-sha
+          git commit -m "chore: 记录上游框架指纹 ${{ steps.cmp.outputs.sha }} [skip ci]"
+          git push origin HEAD:${{ github.ref_name }}
+
+  build:
+    name: Build iNextOS image (Hinlink H88K / RK3588)
+    needs: upstream
+    if: github.event_name != 'schedule' || needs.upstream.outputs.changed == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 350
+    env:
+      PROFILE: ${{ github.event.inputs.profile || 'adapted' }}
+    steps:
+      - name: Checkout board adaptation
+        uses: actions/checkout@v4
+        with:
+          path: hh
+
+      - name: Checkout iNextOS build framework (armbian-easepi)
+        uses: actions/checkout@v4
+        with:
+          repository: jjm2473/armbian-easepi
+          ref: easepi-v26.02
+          path: build
+
+      - name: Show profile
+        run: echo "PROFILE=$PROFILE"
+
+      # ── 适配层注入（仅 adapted）────────────────────────────────────────────
+      - name: Inject Hinlink H88K board config (adapted)
+        if: github.event.inputs.profile != 'official'
+        run: |
+          set -e
+          echo "--- 上游原文件（留档，便于 diff）:"
+          head -20 build/config/boards/hinlink-h88k.csc
+          cp -v hh/config/boards/hinlink-h88k.csc build/config/boards/
+          echo "--- 注入后关键标记:"
+          grep -nE 'KERNEL_TARGET|BOOT_FDT_FILE|eth_order|admin-ip' build/config/boards/hinlink-h88k.csc || true
+          # 硬自检（用子串，不用锚定行——csc 是 shell 源码）
+          grep -qF '0004:41:00.0,0003:31:00.0,fe1b0000.ethernet' build/config/boards/hinlink-h88k.csc \
+            || { echo "!! csc 缺静态 eth_order 字面量"; exit 1; }
+          grep -qF 'post_family_tweaks__lyw_hh_h88k_static_eth_order' build/config/boards/hinlink-h88k.csc \
+            || { echo "!! csc 缺静态口序钩子"; exit 1; }
+          grep -qF 'KERNEL_TARGET="vendor"' build/config/boards/hinlink-h88k.csc \
+            || { echo "!! csc 的 KERNEL_TARGET 不是 vendor"; exit 1; }
+          grep -qF 'rk3588-hinlink-h88k.dtb' build/config/boards/hinlink-h88k.csc \
+            || { echo "!! csc 的 DTB 不是 h88k"; exit 1; }
+          # 上游的音频命名/initrd 固件钩子必须还在（本仓只做加法）
+          grep -qF 'post_family_tweaks__hinlink_h88k_naming_audios' build/config/boards/hinlink-h88k.csc \
+            || { echo "!! 丢了上游音频命名钩子"; exit 1; }
+          echo "csc 注入自检全部通过"
+
+      - name: Install H88K extensions (adapted)
+        if: github.event.inputs.profile != 'official'
+        run: |
+          set -e
+          mkdir -p build/userpatches/extensions
+          cp -v hh/extensions/*.sh build/userpatches/extensions/
+          chmod +x build/userpatches/extensions/*.sh
+          ls -l build/userpatches/extensions/
+          # 框架只加载【可执行】的扩展；权限不对会被静默跳过（"Found 0 extensions"）
+          for fn in lyw_hh_roceos lyw_hh_net lyw_hh_clock lyw_hh_board_symbols; do
+            grep -rq "$fn" build/userpatches/extensions/ || { echo "!! 扩展函数缺失: $fn"; exit 1; }
+          done
+          grep -q 'custom_kernel_config__lyw_hh_board_symbols' \
+            build/userpatches/extensions/lyw-hh-kernel-config.sh \
+            || { echo "!! kernel-config 扩展缺钩子"; exit 1; }
+          grep -q 'ROCEOS_PAYLOAD_SHA256' build/userpatches/extensions/lyw-hh-roceos.sh \
+            || { echo "!! roceos 扩展缺载荷指纹"; exit 1; }
+          grep -q 'ConditionPathExists=/opt/roceos-ai/model.conf' build/userpatches/extensions/lyw-hh-roceos.sh \
+            || { echo "!! roceos 扩展缺 AI 模型门禁"; exit 1; }
+
+      # ── 网口口径判据（秒级；把"最后一分钟才红"提前到构建前）──────────────
+      - name: Lint NIC eth_order policy (adapted)
+        if: github.event.inputs.profile != 'official'
+        run: |
+          set -e
+          python3 hh/tools/net-pin-check.py --src hh/config/boards/hinlink-h88k.csc
+          bash hh/tools/tests/net-pin-check-test.sh
+
+      - name: Fetch roceos web-UI payload into userpatches/overlay (adapted)
+        if: github.event.inputs.profile != 'official'
+        run: |
+          set -e
+          mkdir -p build/userpatches/overlay
+          URL="https://github.com/linyueweia/lyw-OS/releases/download/roceos-payload-v1/roceos-payload.tar.gz"
+          curl -fsSL -o build/userpatches/overlay/roceos-payload.tar.gz "$URL"
+          echo "6b819584a1b1701163f8983bd59a31821643f64dd65c76ba8f500ef54c5e8bb5  build/userpatches/overlay/roceos-payload.tar.gz" | sha256sum -c -
+          ls -l build/userpatches/overlay/
+
+      - name: Set up QEMU (binfmt_misc for arm64 cross-build)
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64,arm
+
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL || true
+          sudo apt-get clean
+          df -h /
+
+      - name: Build iNextOS image
+        run: |
+          cd build
+          # 注释必须放在整条命令【之前】：放进 "\" 续行之间会把后续参数整段注释掉
+          if [ "$PROFILE" = "adapted" ]; then
+            EXTS="istorenext,lyw-hh-roceos,lyw-hh-kernel-config,lyw-hh-net,lyw-hh-clock"
+          else
+            EXTS="istorenext"
+          fi
+          echo "ENABLE_EXTENSIONS=$EXTS"
+          ./compile.sh build \
+            BOARD=hinlink-h88k \
+            BRANCH=vendor \
+            RELEASE=trixie \
+            ENABLE_EXTENSIONS="$EXTS" \
+            BUILD_MINIMAL=no \
+            BUILD_DESKTOP=no \
+            KERNEL_CONFIGURE=no \
+            COMPRESS_OUTPUTIMAGE="sha,img,xz" \
+            SHARE_LOG=yes \
+            EXPERT=yes
+
+      - name: Show outputs
+        run: |
+          ls -lh build/output/images/ || true
+          cat build/output/images/*.sha 2>/dev/null || true
+
+      # 上传放在自证【之前】：自证失败也不能白造一个镜像
+      - name: Upload iNextOS artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: inextos-hinlink-h88k-${{ env.PROFILE }}
+          path: |
+            build/output/images/*.img.xz
+            build/output/images/*.sha
+          retention-days: 14
+          if-no-files-found: error
+
+      - name: Post-process verification (image self-check)
+        run: |
+          set -e
+          IMG=$(ls build/output/images/*.img | head -n1)
+          echo "IMG=$IMG"
+          chmod +x hh/tools/verify-image.sh
+          sudo -E bash hh/tools/verify-image.sh "$IMG"
