@@ -1,2 +1,5 @@
 .tmp-netpin-test/
 _bin/
+*.log
+job*.json
+runs.json
