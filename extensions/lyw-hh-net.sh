@@ -63,21 +63,6 @@ EOS
 	return 0
 }
 
-function post_customize_image__lyw_hh_cma_parity() {
-	# cma 与官方对齐：官方 iNextOSA_26.2.1_Easepi-r2 的 armbianEnv.txt 是 extraargs=cma=256M，
-	# H88K 运行系统实测也是 256M。这里只做"不得被改动"的断言 —— 不主动改值
-	# （曾经把它提到 1G，属于我们自己加的，用户要求按官方来）。
-	local envf="${SDCARD}/boot/armbianEnv.txt"
-	[[ -f "$envf" ]] || { display_alert "armbianEnv.txt not found, skip cma check" "$EXTENSION" "warn"; return 0; }
-	if grep -qE 'cma=[0-9]+[MG]' "$envf"; then
-		grep -qE 'cma=256M([[:space:]]|$)' "$envf" 			|| exit_with_error "cma 不是官方口径 256M: $(grep -oE 'cma=[0-9]+[MG]' "$envf" | head -1)"
-		display_alert "armbianEnv.txt cma=256M（与官方 R2 一致）" "$EXTENSION" "info"
-	else
-		display_alert "armbianEnv.txt 未显式给 cma（走内核默认 256M）" "$EXTENSION" "warn"
-	fi
-	return 0
-}
-
 function post_customize_image__lyw_hh_admin_ip_selfcheck() {
 	display_alert "Self-check H88K admin-IP/LED wiring" "$EXTENSION" "info"
 

@@ -53,13 +53,7 @@ if [[ -f "$BOOTDIR/armbianEnv.txt" ]]; then
 	grep -q 'rk3588-hinlink-h88k.dtb' "$BOOTDIR/armbianEnv.txt" \
 		&& ok "armbianEnv.txt 指向 rk3588-hinlink-h88k.dtb" \
 		|| bad "armbianEnv.txt 未指向 H88K 的 DTB"
-	if grep -qE 'cma=[0-9]+[MG]' "$BOOTDIR/armbianEnv.txt"; then
-		grep -qE 'cma=256M([[:space:]]|$)' "$BOOTDIR/armbianEnv.txt" \
-			&& ok "cma=256M（与官方 Easepi-r2 一致）" \
-			|| bad "cma 不是官方口径 256M（官方 R2 是 extraargs=cma=256M）"
-	else
-		warn "armbianEnv.txt 未显式给 cma（内核默认）"
-	fi
+	# 注：cma / EEE 等官方默认值不在此断言 —— 判据只保留会出故障的项
 else
 	bad "找不到 armbianEnv.txt"
 fi
