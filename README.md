@@ -49,13 +49,13 @@ GitHub Actions，两种档位（`workflow_dispatch`）：
 
 ```bash
 ./compile.sh build BOARD=hinlink-h88k BRANCH=vendor RELEASE=trixie \
-  ENABLE_EXTENSIONS="istorenext,lyw-hh-roceos,lyw-hh-kernel-config,lyw-hh-net,lyw-hh-clock" \
+  ENABLE_EXTENSIONS="istorenext,lyw-hh-roceos,lyw-hh-net,lyw-hh-clock" \
   BUILD_MINIMAL=no BUILD_DESKTOP=no KERNEL_CONFIGURE=no \
   COMPRESS_OUTPUTIMAGE="sha,img,xz" SHARE_LOG=yes EXPERT=yes
 ```
 
-参考基线：运行系统内核 `6.1.115-vendor-rk35xx`，`CONFIG_R8125=m / STMMAC_ETH=y / DWMAC_ROCKCHIP=y /
-LEDS_TRIGGER_NETDEV=y`（`lyw-hh-kernel-config` 会把这些钉死并在 Kconfig 入口点名，改名即构建失败）。
+参考基线：运行系统内核 `6.1.115-vendor-rk35xx`（`R8125=m / STMMAC_ETH=y / DWMAC_ROCKCHIP=y`）——
+这些是厂商树默认值，本仓**不改也不断言**。
 
 ## 判据（构建前 + 构建后同一份代码）
 
@@ -68,7 +68,7 @@ bash tools/tests/net-pin-check-test.sh          # 14 例负例自测
 sudo bash tools/verify-image.sh output/images/*.img
 ```
 
-`verify-image.sh` 断言七组：引导/DTB、口序、时钟、roceos 后台、管理地址+LED 守护、内核驱动、反断言（无 wan1/lan1/lan2 残留）。
+`verify-image.sh` **只断言本仓改过的地方**：静态口序、时钟、roceos 载荷、roceos-ai 语义、管理地址+LED 守护、命名反断言。官方默认值（DTB/cma/内核符号等）一律不断言。
 
 ## 目录
 
@@ -77,7 +77,6 @@ config/boards/hinlink-h88k.csc     上游 csc 的加法版（静态口序）
 extensions/lyw-hh-net.sh           管理地址守护 + 前面板 LED + cma 官方口径断言
 extensions/lyw-hh-clock.sh         mask fake-hwclock-load（JWT 立刻过期的根因）
 extensions/lyw-hh-roceos.sh        roceos 载荷注入 + AI 模型门禁
-extensions/lyw-hh-kernel-config.sh 内核符号钉死（R8125 / STMMAC / DWMAC / LEDS）
 tools/net-pin-check.py             网口口径唯一判据（--src / --conf）
 tools/verify-image.sh              镜像自证
 docs/H88K-适配工作流与判据.md      全部证据链与实机数据
