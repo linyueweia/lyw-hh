@@ -9,7 +9,7 @@
 |---|------|------|----------|
 | 1 | 网口顺序反了（ETH0↔ETH2） | 厂商 `gen-eth-order.sh` 按「平台口优先 + PCIe 字典序」猜顺序，上游 csc 里没有任何口序代码 | 板级 csc 写死静态 `/etc/eth_order`：`eth0=0004:41(2.5G) eth1=0003:31(2.5G) eth2=fe1b0000(千兆)` |
 | 2 | 进后台一下就退出 | `/etc/fake-hwclock.data` 是构建日期（2026-08-26），开机覆盖 RTC → roceos JWT 一签发就过期 | `mask` 掉 `fake-hwclock-load.service`，`.data` 写构建时刻 |
-| 3 | 前面板系统灯不亮 | DTS 四个 LED 节点里只有 `work` 带 `linux,default-trigger`，`net/sata/user` 没有默认触发器 | `h88k-admin-ip.service` 守护设置 `blue:net=netdev(br-lan1)`、`green:user=heartbeat`、`amber:sata=disk-activity` |
+| 3 | 前面板系统灯不亮 | DTS 本身没问题（GPIO/标注都对），只是 `net/sata/user` 没写 `linux,default-trigger`，开机无人驱动 | `h88k-admin-ip.service` 守护设置 `blue:net=netdev(br-lan1)`、`green:user=heartbeat`、`amber:sata=disk-activity` |
 | 4 | 后台每 5 秒崩一次（`NRestarts=206`） | 26.2.1 载荷里 `server.py` 缺模型时 `sys.exit(1)` + `Restart=on-failure` → 无限重启；官方 **Easepi-r2** 新版改为 `sys.exit(3)` + unit `RestartPreventExitStatus=3` | 用官方那两份文件覆盖载荷（sha256 钉死），与官方行为一致 |
 
 另外保持官方口径：`192.168.100.1` 常驻千兆口（或其桥），`cma=256M`（与官方 Easepi-r2 镜像一致），EEE 不动（官方默认）。
