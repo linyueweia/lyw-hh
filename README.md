@@ -1,9 +1,9 @@
 # lyw-hh — Hinlink H88K（RK3588）iNextOS 仓库化构建
 
 从上游框架 [jjm2473/armbian-easepi @ easepi-v26.02](https://github.com/jjm2473/armbian-easepi)
-编译 H88K 的 iNextOS 镜像，并把**用户实机 192.168.10.90 上验证过的四处修正**固化成代码。
+编译 H88K 的 iNextOS 镜像，并把**用户实机 192.168.10.90 上验证过的修正**固化成代码。
 
-官方镜像（`iNextOSA_26.2.1_H88K_trixie_vendor_6.1.115.img`）刷上去有四个问题，本仓全部修掉：
+官方镜像（`iNextOSA_26.2.1_H88K_trixie_vendor_6.1.115.img`）刷上去有下列问题，本仓全部修掉：
 
 | # | 现象 | 根因 | 本仓修法 |
 |---|------|------|----------|
@@ -11,8 +11,9 @@
 | 2 | 进后台一下就退出 | `/etc/fake-hwclock.data` 是构建日期（2026-08-26），开机覆盖 RTC → roceos JWT 一签发就过期 | `mask` 掉 `fake-hwclock-load.service`，`.data` 写构建时刻 |
 | 3 | 前面板系统灯不亮 | DTS 本身没问题（GPIO/标注都对），只是 `net/sata/user` 没写 `linux,default-trigger`，开机无人驱动 | `h88k-admin-ip.service` 守护设置 `blue:net=netdev(br-lan1)`、`green:user=heartbeat`、`amber:sata=disk-activity` |
 | 4 | 后台每 5 秒崩一次（`NRestarts=206`） | 26.2.1 载荷里 `server.py` 缺模型时 `sys.exit(1)` + `Restart=on-failure` → 无限重启；官方 **Easepi-r2** 新版改为 `sys.exit(3)` + unit `RestartPreventExitStatus=3` | 用官方那两份文件覆盖载荷（sha256 钉死），与官方行为一致 |
+| 5 | 千兆口（`fe1b0000`，RTL8211F）偶发「灯亮、协商 1000M、但整口收不到包 → 下级设备 30s 后自分配 169.254，拔插网线即恢复」 | 1000T EEE 的唤醒竞争：vendor 6.1 的 `stmmac_main.c` 以 `rx_clk_runs_in_lpi=0` 调 `phy_init_eee()` → PHY 在 LPI 期间停 xMII RX 时钟，唤醒失败就丢帧；`carrier` 仍在、错误计数不涨，所以从接口上看不出来（iNextOS 线 K1/T68M 已定案同一机制） | 板级 DTS（`patch/kernel/rk35xx-vendor-6.1/dt/rk3588-hinlink-h88k.dts`）在 `&mdio0` 的 `rgmii_phy`（`phy@1`）节点写 `eee-broken-1000t`：只关 1G 的 EEE、100M 不动，不需要任何用户态脚本。两个 2.5G（RTL8125）是 PCIe 网卡、不走 phylib，DT 属性对它们无效 |
 
-另外保持官方口径：`192.168.100.1` 常驻千兆口（或其桥），`cma=256M`（与官方 Easepi-r2 镜像一致），EEE 不动（官方默认）。
+另外保持官方口径：`192.168.100.1` 常驻千兆口（或其桥），`cma=256M`（与官方 Easepi-r2 镜像一致）。
 
 ## AI 服务：官方镜像里同样没有模型（实测）
 
@@ -96,6 +97,9 @@ config/boards/hinlink-h88k.csc     上游 csc 的加法版（静态口序）
 extensions/lyw-hh-net.sh           管理地址守护 + 前面板 LED
 extensions/lyw-hh-clock.sh         mask fake-hwclock-load（JWT 立刻过期的根因）
 extensions/lyw-hh-roceos.sh        roceos 载荷注入 + AI 无模型语义
+patch/kernel/rk35xx-vendor-6.1/dt/rk3588-hinlink-h88k.dts
+                                   板级 DTS fork（唯一改动 = 千兆 PHY 节点 eee-broken-1000t）
+tools/dts-lint.py                  板级 DTS 语法门（构建前秒级；CPP 移位运算符/prop-order 全覆盖）
 tools/net-pin-check.py             网口口径唯一判据（--src / --conf，期望值只来自 csc）
 tools/verify-image.sh              镜像自证（分区布局自适应，支持 --probe）
 tools/tests/                       负例自测：网口口径 16 例 + 布局探测 4 例

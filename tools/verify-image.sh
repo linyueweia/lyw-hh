@@ -201,6 +201,51 @@ else
 	bad "ttyFIQ0 getty 未 mask（启动会等 dev-ttyFIQ0.device 超时 + getty 反复重启）"
 fi
 
+echo "== 0b. 千兆口 EEE（本仓板级 DTS 关 1000T）=="
+# iNextOS 定案：PHY 节点 eee-broken-1000t，只关 1G 的 EEE（100M 不动），不用任何用户态脚本。
+# 症状签名：carrier 仍 up、协商仍 1000M、错误计数不涨，整口静默收不到包，
+# 下级设备 30s 后自分配 169.254，拔插网线即恢复（= PHY 末端唤醒竞争）。
+# 两个 2.5G（RTL8125）是 PCIe 网卡、不走 phylib，DT 属性对它们无效，不在本条范围内。
+DTBF=""
+for c in "$BOOTDIR/dtb/rockchip/rk3588-hinlink-h88k.dtb" \
+	 "$MNT/boot/dtb/rockchip/rk3588-hinlink-h88k.dtb" \
+	 "$MNT/boot/firmware/dtb/rockchip/rk3588-hinlink-h88k.dtb"; do
+	[[ -f "$c" ]] && { DTBF="$c"; break; }
+done
+if [[ -n "$DTBF" ]]; then
+	if python3 - "$DTBF" <<-'PY'
+		import sys
+		d = open(sys.argv[1], 'rb').read()
+		n = d.count(b'eee-broken-1000t')
+		print('     eee-broken-1000t: %d 处' % n)
+		sys.exit(0 if n >= 1 else 1)
+	PY
+	then
+		ok "DTB 含 eee-broken-1000t（千兆口 1G EEE 已关，100M 不动）"
+	else
+		bad "DTB 缺 eee-broken-1000t（千兆口 1000T EEE 未关 → 整口静默丢包、下级 DHCP 拿不到地址）"
+	fi
+else
+	bad "镜像里找不到 rk3588-hinlink-h88k.dtb（无法核对 EEE 口径）"
+fi
+
+# ⑤（可选）包集合全量核对：拿框架自己的 packages.additional 原文（单一真源，CI 传入）
+#    逐包断言不得进镜像 —— 上游往清单里加包也自动覆盖，不在这里抄第二份名单。
+if [[ -n "${PACKAGES_ADDITIONAL_FILE:-}" && -f "$PACKAGES_ADDITIONAL_FILE" ]]; then
+	_n=0; _hit=0
+	while IFS= read -r _p; do
+		case "$_p" in ''|'#'*) continue ;; esac
+		_n=$((_n + 1))
+		if grep -q "^Package: ${_p}$" "$MNT/var/lib/dpkg/status" 2>/dev/null; then
+			bad "packages.additional 成员进了镜像: ${_p}（BUILD_MINIMAL 应为 yes）"
+			_hit=$((_hit + 1))
+		fi
+	done < "$PACKAGES_ADDITIONAL_FILE"
+	[[ "$_hit" -eq 0 ]] && ok "packages.additional 全量 ${_n} 个包一个都没进镜像（与官方 minimal 同口径）"
+else
+	echo "  --   未提供 packages.additional 原文（PACKAGES_ADDITIONAL_FILE），只跑了 8 个关键包黑名单"
+fi
+
 echo "== 1. 静态口序（本仓写入）=="
 if python3 "$ROOT/tools/net-pin-check.py" --conf "$MNT" --src "$ROOT/config/boards/hinlink-h88k.csc" 2>&1 | sed 's/^/     /'; then
 	ok "/etc/eth_order 与实机口径一致（eth0/eth1=2.5G PCIe，eth2=千兆平台口）"
