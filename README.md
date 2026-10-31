@@ -127,7 +127,8 @@ GitHub Actions，两种档位（`workflow_dispatch`）：
 - **roceos 版本口径（2026-10-31）**：镜像内置 roceos = 官方在线通道的最新版 **3.0.2**
   （`channel=stable_arm`、`arch=arm64`，取自官方更新服务器 `update.roceos.com:14380` +
   在役实机 OTA 后的 `/opt/roceos`）。版本记录在 `official-roceos.txt`；
-  `.github/workflows/check-roceos.yml` 每天比对一次，官方发了新版就红（= 该重建载荷）。
+  由 `.github/workflows/build.yml` 的 `roceos` job 每天核对并**自动跟版**（重建载荷 + 发本仓
+  release + 改三处 pin + 推送；同一次 run 的 build 直接接着编）。
   取件与打包步骤见 `docs/` 的「roceos 载荷怎么跟官方版本」。
 
 - 与官方 csc 的对齐（2026-10-31）：`FULL_DESKTOP`/`BOOT_LOGO` 恢复官方同值
