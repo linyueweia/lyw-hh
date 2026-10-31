@@ -44,6 +44,38 @@ FAIL=0
 ok()  { echo "  OK   $*"; PASS=$((PASS + 1)); }
 bad() { echo "  !!   $*"; FAIL=$((FAIL + 1)); }
 
+# 包集合口径：判据单点在 tools/packages-parity-check.py（本函数只负责拼参数与判 red/green）。
+# 为什么不在这里逐包 grep：packages.additional 的成员有四个【官方 minimal 也有】的合法来源
+# （框架三层 base 清单 / istorenext 的 add_packages_to_image / 依赖传递 / apt auto），
+# 「出现即红」会在 BUILD_MINIMAL=yes 生效时照样打出 15 条假红（2026-10-31 run #26）。
+packages_parity_check() {   # $1 = 已挂载的 rootfs
+	local _root="$1" _out _rc _f
+	local -a _args=(--root "$_root" --release "${RELEASE:-trixie}" --arch arm64 --trace)
+	if [ -n "${BUILD_TREE:-}" ] && [ -d "${BUILD_TREE}/config/cli" ]; then
+		_args+=(--build-tree "$BUILD_TREE")
+	elif [ -n "${PACKAGES_ADDITIONAL_FILE:-}" ] && [ -f "${PACKAGES_ADDITIONAL_FILE}" ]; then
+		echo "  --   未提供 BUILD_TREE，退化为显式清单（缺 config/optional 层会误判）"
+		_args+=(--additional "$PACKAGES_ADDITIONAL_FILE")
+		if [ -n "${PACKAGES_BASE_FILE:-}" ] && [ -f "${PACKAGES_BASE_FILE}" ]; then
+			_args+=(--base "$PACKAGES_BASE_FILE")
+		fi
+	else
+		bad "包集合口径无法核对：既没有 BUILD_TREE 也没有 PACKAGES_ADDITIONAL_FILE（不给假绿）"
+		return
+	fi
+	for _f in ${PACKAGES_EXTENSION_FILES:-}; do
+		[ -f "$_f" ] && _args+=(--extension "$_f")
+	done
+	_out="$(python3 "$ROOT/tools/packages-parity-check.py" "${_args[@]}" 2>&1)"; _rc=$?
+	printf '%s\n' "$_out"
+	case "$_rc" in
+		0) ;;
+		1) bad "包集合与官方 minimal 口径不一致（上面列出的包没有任何合法来源）" ;;
+		*) bad "包集合判据输入缺失/不可解析（rc=${_rc}）—— 不给假绿" ;;
+	esac
+	return 0
+}
+
 MNT="$(mktemp -d)"
 BOOTMNT="$(mktemp -d)"
 LOOP=""
@@ -229,22 +261,9 @@ else
 	bad "镜像里找不到 rk3588-hinlink-h88k.dtb（无法核对 EEE 口径）"
 fi
 
-# ⑤（可选）包集合全量核对：拿框架自己的 packages.additional 原文（单一真源，CI 传入）
-#    逐包断言不得进镜像 —— 上游往清单里加包也自动覆盖，不在这里抄第二份名单。
-if [[ -n "${PACKAGES_ADDITIONAL_FILE:-}" && -f "$PACKAGES_ADDITIONAL_FILE" ]]; then
-	_n=0; _hit=0
-	while IFS= read -r _p; do
-		case "$_p" in ''|'#'*) continue ;; esac
-		_n=$((_n + 1))
-		if grep -q "^Package: ${_p}$" "$MNT/var/lib/dpkg/status" 2>/dev/null; then
-			bad "packages.additional 成员进了镜像: ${_p}（BUILD_MINIMAL 应为 yes）"
-			_hit=$((_hit + 1))
-		fi
-	done < "$PACKAGES_ADDITIONAL_FILE"
-	[[ "$_hit" -eq 0 ]] && ok "packages.additional 全量 ${_n} 个包一个都没进镜像（与官方 minimal 同口径）"
-else
-	echo "  --   未提供 packages.additional 原文（PACKAGES_ADDITIONAL_FILE），只跑了 8 个关键包黑名单"
-fi
+# ⑤ 包集合全量核对 —— 判据单点在 tools/packages-parity-check.py（来源减法，不抄第二份名单）：
+#    违规 = 出现 ∩ ¬框架 base 清单三层聚合 ∩ ¬扩展 add_packages_to_image ∩ ¬依赖闭包 ∩ ¬apt auto
+packages_parity_check "$MNT"
 
 echo "== 1. 静态口序（本仓写入）=="
 if python3 "$ROOT/tools/net-pin-check.py" --conf "$MNT" --src "$ROOT/config/boards/hinlink-h88k.csc" 2>&1 | sed 's/^/     /'; then

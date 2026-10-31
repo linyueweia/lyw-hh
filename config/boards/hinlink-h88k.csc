@@ -5,7 +5,7 @@
 #    追加/覆盖以下几处（每处都对应一处与官方发布件的偏差）：
 #      ① 口序铁律：静态 /etc/eth_order（上游空白，靠厂商脚本猜 → ETH0/ETH2 反了）
 #      ② RELEASE 钉死（框架无板级默认，不钉会停在交互选择）
-#      ③ FULL_DESKTOP=no（NAS CLI 镜像，与 CI 的 BUILD_DESKTOP=no 同口径）
+#      ③ 桌面开关保持官方 csc 同值（FULL_DESKTOP/BOOT_LOGO）；桌面由 CI 的 BUILD_DESKTOP=no 关掉
 #      ④ NETWORKING_STACK="none"（官方发布件里没有 network-manager）
 #      ⑤ hold dtb + smartmontools「包在、不启用」（官方 R1/R2 同款做法）
 #
@@ -27,7 +27,9 @@ BOARD_MAINTAINER="lyw"
 BOARD_FIRMWARE_INSTALL="-full"
 BOOTCONFIG="rock-5b-rk3588_defconfig"
 # 与用户运行系统一致：6.1.115-vendor-rk35xx（r8125 在树内 drivers/net/ethernet/realtek/r8125）
-KERNEL_TARGET="vendor"
+# KERNEL_TARGET 与官方 csc 同值（官方 hinlink-h88k.csc = "vendor,edge"）：它只声明
+# 「本板支持哪些分支」，实际编哪个分支由 CI 的 BRANCH=vendor 决定 ⇒ 不影响产物。
+KERNEL_TARGET="vendor,edge"
 
 # ── 根文件系统发行版（与 CI 的 RELEASE=trixie、README 同值）──────────────
 # 框架没有板级/家族默认 RELEASE（rockchip64_common.inc 与 rk35xx.conf 都不设），
@@ -35,8 +37,11 @@ KERNEL_TARGET="vendor"
 # 官方 iNextOS 发布件（Easepi-r1/r2）是 Debian trixie、文件名带 `_minimal`。
 declare -g RELEASE="trixie"
 
-# NAS CLI 镜像（CI 固定 BUILD_DESKTOP=no）：不要桌面包、不要桌面 logo。
-FULL_DESKTOP="no"
+# 桌面开关：与官方 csc 同值（FULL_DESKTOP 是框架的废弃变量，全仓无读取者；
+# BOOT_LOGO 仅在 BUILD_DESKTOP=yes 时生效，见 distro-agnostic.sh:591）。
+# 官方发布件同样是「csc 写 yes + CI 传 BUILD_DESKTOP=no」⇒ CLI 产物；本仓照抄。
+FULL_DESKTOP="yes"
+BOOT_LOGO="desktop"
 BOOT_FDT_FILE="rockchip/rk3588-hinlink-h88k.dtb"
 BOOT_SCENARIO="spl-blobs"
 IMAGE_PARTITION_TABLE="gpt"

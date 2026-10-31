@@ -96,6 +96,38 @@ GitHub Actions，两种档位（`workflow_dispatch`）：
 参考基线：运行系统内核 `6.1.115-vendor-rk35xx`（`R8125=m / STMMAC_ETH=y / DWMAC_ROCKCHIP=y`）——
 这些是厂商树默认值，本仓**不改也不断言**。
 
+## 包集合口径（与官方 minimal 逐包对齐，2026-10-31 定案）
+
+**结论**：本仓镜像的 dpkg 包集合 = 框架官方 minimal 口径；本仓的扩展**不额外加任何包**。
+
+判据单点：`tools/packages-parity-check.py`（`--selftest` 跑 3 正例 + 6 负例 + 1 聚合口径自测）。
+
+- 旧判据把 `packages.additional` 整份当黑名单，只要成员出现在镜像里就判红 →
+  **`BUILD_MINIMAL=yes` 明明生效，仍然打出 15 条红**（lyw-rr run #39 / lyw-hh run #26），
+  整轮 2 小时白跑。错的不是包，是判据。
+- `packages.additional` 的成员有四个「官方 minimal 镜像里同样存在」的合法来源：
+  1. 框架自己的 rootfs 清单（**三层聚合**：`config/cli/<rel>/main/packages` +
+     `config/optional/_any_board/_config/…` + `config/optional/architectures/<arch>/_config/…`）
+     —— `sudo` `wget` `bash-completion` `htop` `wireless-regdb`，**以及只写在
+     arm64 optional 层的 `gpiod`**（只看 `config/cli/…` 会把它误判成「多出来的包」）；
+  2. `extensions/istorenext.sh` 的 `add_packages_to_image` —— `git` `unzip` `ntfs-3g`
+     `nfs-common` `smartmontools`；
+  3. 上面两者的 Depends/Recommends 传递依赖 —— `keyboard-configuration ← console-setup`、
+     `libpam-systemd ← systemd-sysv ← init`、`iptables ← wireguard-tools`、
+     `apt-utils ← debconf ← iproute2`；
+  4. apt 的 `Auto-Installed` 记录（镜像里 `/var/lib/apt/extended_states` 在时）。
+- 现判据 = **来源减法**：只有「出现 ∩ 不属于以上四类」的成员才判红 ——
+  `BUILD_MINIMAL=no`（整份 additional 进镜像）或有人手工装 additional 包时立刻红。
+  实测：用真实镜像同口径数据跑，上述 15 项全部有来源、判据绿；再造「整份装进来」负例，判据红。
+- 另一个真实偏差已修：`extensions/*-roceos.sh` 原先在构建期
+  `apt-get install python3-flask …`，会把这 6 个包连同依赖写进镜像 dpkg ——
+  官方 minimal 里没有它们（官方是 roceos 首启按 `required-packages.json` 现装）。
+  现在改为**只从载荷拷 `dist-packages`**（不进 dpkg），包集合与官方一致。
+- 与官方 csc 的对齐（2026-10-31）：`FULL_DESKTOP`/`BOOT_LOGO` 恢复官方同值
+  （前者是框架废弃变量，`lib/` 全仓无读取者；后者只在 `BUILD_DESKTOP=yes` 时生效，
+  见 `distro-agnostic.sh:591`），桌面仍由 CI 的 `BUILD_DESKTOP=no` 关掉 —— 产物不变，
+  csc 不再自造差异。
+
 ## 判据（构建前 + 构建后同一份代码）
 
 ```bash
@@ -113,7 +145,8 @@ sudo bash tools/verify-image.sh --probe output/images/*.img   # 只探测布局
 ```
 
 `verify-image.sh` **只断言本仓改过的地方**：静态口序、时钟、roceos 载荷、roceos-ai 语义、管理地址+LED 守护、命名反断言，
-外加三类官方发布件口径（2026-10-30 对齐）：镜像名必须含 `_minimal`、`packages.additional` 整份黑名单不得出现、
+外加三类官方发布件口径（2026-10-30 对齐）：镜像名必须含 `_minimal`、
+`packages.additional` 逐包核对（判据单点 `tools/packages-parity-check.py`，见上面「包集合口径」一节）、
 `smartmontools` 包在但不启用、`serial-getty@ttyFIQ0` 必须已 mask（vendor 分支串口走 fiq-debugger）。
 官方默认值（DTB/cma/内核符号等）一律不断言。
 
