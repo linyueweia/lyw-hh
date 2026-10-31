@@ -50,9 +50,16 @@ GitHub Actions，两种档位（`workflow_dispatch`）：
 ```bash
 ./compile.sh build BOARD=hinlink-h88k BRANCH=vendor RELEASE=trixie \
   ENABLE_EXTENSIONS="istorenext,lyw-hh-roceos,lyw-hh-net,lyw-hh-clock" \
-  BUILD_MINIMAL=no BUILD_DESKTOP=no KERNEL_CONFIGURE=no \
+  BUILD_MINIMAL=yes BUILD_DESKTOP=no KERNEL_CONFIGURE=no \
   COMPRESS_OUTPUTIMAGE="sha,img,xz" SHARE_LOG=yes EXPERT=yes
 ```
+
+**`BUILD_MINIMAL=yes` 是官方口径，不是性能选项**：官方 `iNextOSA_26.2.1_Easepi-r2_…_minimal.img`
+文件名就带 `_minimal`（框架只在 yes 时加这个后缀）、实测 718 包。传 `no` 会装整份
+`config/cli/<rel>/main/packages.additional`（实测 958 包），其中 `avahi-autoipd` 在 DHCP 失败时
+往网卡塞 169.254 地址、`unattended-upgrades` 后台升级并重启 dnsmasq/网络服务 —— 两者都会表现成
+「网口灯亮、下级设备拿不到 IP / 用几小时就掉」，官方 minimal 完全没有。CI 与 `verify-image.sh`
+各有硬断言（镜像名必须含 `_minimal` + 上述包不得出现在 dpkg 状态里）。
 
 参考基线：运行系统内核 `6.1.115-vendor-rk35xx`（`R8125=m / STMMAC_ETH=y / DWMAC_ROCKCHIP=y`）——
 这些是厂商树默认值，本仓**不改也不断言**。
@@ -73,7 +80,10 @@ sudo bash tools/verify-image.sh output/images/*.img      # 完整自证
 sudo bash tools/verify-image.sh --probe output/images/*.img   # 只探测布局
 ```
 
-`verify-image.sh` **只断言本仓改过的地方**：静态口序、时钟、roceos 载荷、roceos-ai 语义、管理地址+LED 守护、命名反断言。官方默认值（DTB/cma/内核符号等）一律不断言。
+`verify-image.sh` **只断言本仓改过的地方**：静态口序、时钟、roceos 载荷、roceos-ai 语义、管理地址+LED 守护、命名反断言，
+外加三类官方发布件口径（2026-10-30 对齐）：镜像名必须含 `_minimal`、`packages.additional` 整份黑名单不得出现、
+`smartmontools` 包在但不启用、`serial-getty@ttyFIQ0` 必须已 mask（vendor 分支串口走 fiq-debugger）。
+官方默认值（DTB/cma/内核符号等）一律不断言。
 
 **布局**：本板 csc 没声明 `BOOTFS_TYPE`，构建产物是**单分区**（p1 = rootfs ext4，引导文件在 rootfs 的 `/boot`），与官方 H88K 镜像同构；只有声明了 `BOOTFS_TYPE` 的板才是 `bootfs + rootfs` 双分区。自证脚本**枚举分区 + blkid 判定**，两种布局都支持；挂上的分区不像 rootfs（缺 `/etc` `/usr`）就立刻判红并打印分区表。
 

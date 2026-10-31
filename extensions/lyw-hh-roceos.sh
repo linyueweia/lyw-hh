@@ -160,6 +160,12 @@ function post_post_debootstrap_tweaks__lyw_hh_roceos() {
 	[[ -L "${SDCARD}/etc/nginx/sites-enabled/roceos.conf" ]] || { display_alert "nginx site not enabled" "$EXTENSION" "err"; fail=1; }
 	[[ -e "${SDCARD}/etc/nginx/sites-enabled/default" ]] && { display_alert "default site still present" "$EXTENSION" "err"; fail=1; }
 	[[ -f "${SDCARD}/etc/apt/preferences.d/10-inextos-firmware-conflict" ]] || { display_alert "apt pin file missing" "$EXTENSION" "err"; fail=1; }
+	# ttyFIQ0 getty：vendor 6.1 分支框架会启用 serial-getty@ttyFIQ0，而本板串口控制台
+	# 是 fiq-debugger（getty 抢不到设备 → 启动时 "Timed out waiting for device
+	# dev-ttyFIQ0.device" + getty 反复重启）。mask 成 /dev/null（与 lyw-OS/lyw-kk 同写法）。
+	ln -sf /dev/null "${SDCARD}/etc/systemd/system/serial-getty@ttyFIQ0.service"
+	[[ -L "${SDCARD}/etc/systemd/system/serial-getty@ttyFIQ0.service" ]] || \
+		{ display_alert "ttyFIQ0 getty not masked" "$EXTENSION" "err"; fail=1; }
 	grep -q '^RestartPreventExitStatus=3' "${SDCARD}/etc/systemd/system/roceos-ai.service" 2>/dev/null || \
 		{ display_alert "roceos-ai 缺 RestartPreventExitStatus=3（无模型时会每 5 秒崩溃）" "$EXTENSION" "err"; fail=1; }
 	grep -q '^Wants=roceos.service' "${SDCARD}/etc/systemd/system/roceos-ai.service" 2>/dev/null && \
@@ -169,5 +175,22 @@ function post_post_debootstrap_tweaks__lyw_hh_roceos() {
 	[[ $fail == 0 ]] || exit_with_error "H88K roceos customization self-check failed"
 
 	display_alert "roceos web UI installed and enabled (Hinlink H88K)" "$EXTENSION" "info"
+	return 0
+}
+
+# ── 收尾再 mask 一次 ttyFIQ0 getty ──────────────────────────────────────
+# 框架在 post_debootstrap 之后仍会重新 enable getty@ttyFIQ0（lyw-OS/lyw-kk 实测），
+# 所以最终镜像里必须再落一次 mask。
+# 关键：final-pass 只改得动 ${MOUNT} —— 框架已把 rootfs rsync 进镜像，写 ${SDCARD}
+# 的改动全部丢失，而自证去读 ${SDCARD} 还会打出假绿（技能 §15，lyw-rr run #6 实测）。
+function pre_umount_final_image__lyw_hh_roceos() {
+	display_alert "Final-pass: masking ttyFIQ0 getty (H88K)" "$EXTENSION" "info"
+	[[ -d "${MOUNT}/etc/systemd/system" && -d "${MOUNT}/usr" ]] \
+		|| exit_with_error "final-pass: ${MOUNT} 不像 rootfs（不自洽就停，别输出假绿）"
+	ln -sf /dev/null "${MOUNT}/etc/systemd/system/serial-getty@ttyFIQ0.service"
+	[[ -L "${MOUNT}/etc/systemd/system/serial-getty@ttyFIQ0.service" ]] \
+		|| exit_with_error "ttyFIQ0 mask missing after final pass"
+	[[ "$(readlink "${MOUNT}/etc/systemd/system/serial-getty@ttyFIQ0.service")" == "/dev/null" ]] \
+		|| exit_with_error "ttyFIQ0 mask does not point to /dev/null"
 	return 0
 }

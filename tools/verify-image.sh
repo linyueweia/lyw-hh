@@ -168,6 +168,39 @@ if (( PROBE )); then
 	exit 0
 fi
 
+echo "== 0. 官方发布件口径（BUILD_MINIMAL / 包集合 / smartmontools / ttyFIQ0）=="
+# ① 镜像文件名带 _minimal = BUILD_MINIMAL=yes 真生效（框架 rootfs-to-image.sh:21）
+case "$(basename "$IMG")" in
+	*_minimal*) ok "镜像名含 _minimal（BUILD_MINIMAL=yes，与官方发布件同口径）" ;;
+	*) bad "镜像名不含 _minimal（BUILD_MINIMAL 没传 yes → 会装整份 packages.additional）" ;;
+esac
+# ② 整份 packages.additional 黑名单（名单与 lyw-OS 同源；官方 minimal 里一个都没有）
+for p in avahi-autoipd unattended-upgrades vnstat iperf3 plymouth dkms rng-tools-debian build-essential; do
+	if grep -q "^Package: ${p}$" "$MNT/var/lib/dpkg/status" 2>/dev/null; then
+		bad "出现 packages.additional 成员 ${p}（官方 minimal 不含，BUILD_MINIMAL 应为 yes）"
+	else
+		ok "不含 ${p}"
+	fi
+done
+# ③ smartmontools = 官方 R1「包在、不启用」（2026-10-29 实机取证）
+if grep -q "^Package: smartmontools$" "$MNT/var/lib/dpkg/status" 2>/dev/null; then
+	ok "smartmontools 包在位（官方 R1 同样发行）"
+else
+	bad "smartmontools 包缺失（官方 R1 发行它；卸载是自造差异，不是对齐官方）"
+fi
+if wants_link_ok smartmontools.service; then
+	bad "smartmontools 被 enable（官方 R1 不启用；eMMC 无 SMART，开机必 failed）"
+else
+	ok "反断言：smartmontools 未被 enable（官方 R1 同款）"
+fi
+# ④ ttyFIQ0：vendor 6.1 分支框架会启用 serial-getty@ttyFIQ0，本板串口是 fiq-debugger
+if [[ -L "$MNT/etc/systemd/system/serial-getty@ttyFIQ0.service" \
+   && "$(readlink "$MNT/etc/systemd/system/serial-getty@ttyFIQ0.service")" == "/dev/null" ]]; then
+	ok "ttyFIQ0 getty 已 mask（vendor 分支：串口走 fiq-debugger，getty 抢不到设备）"
+else
+	bad "ttyFIQ0 getty 未 mask（启动会等 dev-ttyFIQ0.device 超时 + getty 反复重启）"
+fi
+
 echo "== 1. 静态口序（本仓写入）=="
 if python3 "$ROOT/tools/net-pin-check.py" --conf "$MNT" --src "$ROOT/config/boards/hinlink-h88k.csc" 2>&1 | sed 's/^/     /'; then
 	ok "/etc/eth_order 与实机口径一致（eth0/eth1=2.5G PCIe，eth2=千兆平台口）"
