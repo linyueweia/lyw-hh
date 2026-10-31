@@ -5,7 +5,7 @@
 # 为什么要外挂注入：官方 iNextOS 镜像自带 /opt/roceos（Go 服务）+ /opt/roceos-ai
 #   + systemd 服务 + nginx 站点与证书，而上游构建框架 jjm2473/armbian-easepi 不带
 #   这些（官方靠自己的流水线注入）。本仓走框架正规通道 userpatches/overlay 在构建
-#   阶段装入；载荷取自 lyw-OS release roceos-payload-v1，sha256 钉死，内容一变即失败。
+#   阶段装入；载荷取自 lyw-OS release roceos-payload-v2，sha256 钉死，内容一变即失败。
 #   不装 = 板子能启动、网络能通，但网页后台是空页面。
 #
 # 用 post_post_debootstrap_tweaks 这个早期钩子：官方 istorenext 扩展就是在这一阶段
@@ -18,8 +18,8 @@
 #   不再是崩溃循环；后面补模型也不需要改镜像。
 # ══════════════════════════════════════════════════════════════════════════
 
-# 载荷 sha256（= lyw-OS release roceos-payload-v1；内容一变就报错）
-ROCEOS_PAYLOAD_SHA256="6b819584a1b1701163f8983bd59a31821643f64dd65c76ba8f500ef54c5e8bb5"
+# 载荷 sha256（= lyw-OS release roceos-payload-v2；内容一变就报错）
+ROCEOS_PAYLOAD_SHA256="cbd911c6fad5a3655bc52a39e4099b8812c70d8358840e1d1d8bf6db956703d1"
 
 function post_post_debootstrap_tweaks__lyw_hh_roceos() {
 	display_alert "Installing roceos web UI (Hinlink H88K)" "$EXTENSION" "info"
