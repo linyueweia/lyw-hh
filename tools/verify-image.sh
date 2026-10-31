@@ -270,10 +270,13 @@ else
 fi
 if [[ -s "$MNT/etc/fake-hwclock.data" ]]; then
 	STAMP="$(cat "$MNT/etc/fake-hwclock.data")"
-	if [[ "$STAMP" > "2026-09-01 00:00:00" ]]; then
-		ok "fake-hwclock.data 不是构建月（$STAMP）"
+	# 动态下界：.data 必须是"近两天内"的构建时刻。写死日期（原 2026-09-01）会随时间
+	# 变成永远为真 —— 那道门等于没有（技能 §23：断言绑性质，不绑字面量）。
+	FLOOR="$(date -u -d '-2 days' '+%Y-%m-%d %H:%M:%S')"
+	if [[ "$STAMP" > "$FLOOR" ]]; then
+		ok "fake-hwclock.data = 构建时刻（$STAMP）"
 	else
-		bad "fake-hwclock.data 回退到构建月（$STAMP）"
+		bad "fake-hwclock.data 不是构建时刻（$STAMP < $FLOOR）—— 开机覆盖 RTC → JWT 过期"
 	fi
 else
 	bad "缺 /etc/fake-hwclock.data"

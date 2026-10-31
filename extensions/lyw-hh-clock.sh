@@ -54,9 +54,12 @@ function post_customize_image__lyw_hh_clock_selfcheck() {
 	if [[ -s "$data" ]]; then
 		grep -qE '^[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}$' "$data" \
 			|| { display_alert "fake-hwclock.data format unexpected: $(cat "$data")" "$EXTENSION" "err"; fail=1; }
-		# 绝不允许回退到 2026-08（那正是 JWT 立刻过期的触发条件）
-		[[ "$(cat "$data")" > "2026-09-01 00:00:00" ]] \
-			|| { display_alert "fake-hwclock.data regressed to build-date 2026-08" "$EXTENSION" "err"; fail=1; }
+		# 必须是"近两天内"的构建时刻。判据动态算，不写死日期字面量 ——
+		# 写死（原来写 2026-09-01）会随时间变成"永远为真"，那道门等于没有。
+		local floor
+		floor="$(date -u -d '-2 days' '+%Y-%m-%d %H:%M:%S')"
+		[[ "$(cat "$data")" > "$floor" ]] \
+			|| { display_alert "fake-hwclock.data 不是构建时刻（$(cat "$data") < $floor）" "$EXTENSION" "err"; fail=1; }
 	fi
 
 	[[ $fail == 0 ]] || exit_with_error "H88K clock self-check failed"
