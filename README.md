@@ -15,6 +15,37 @@
 
 另外保持官方口径：`192.168.100.1` 常驻千兆口（或其桥），`cma=256M`（与官方 Easepi-r2 镜像一致）。
 
+## 关机后风扇仍转、网口灯常亮 —— 官方原样，本仓不修
+
+现象：`poweroff` 之后 CPU 停了、SSH 断了，但风扇还在转、网口灯还亮，像没断电。
+
+根因（代码级，vendor 6.1 树）：
+
+- 关机断电只有一条链 `pm_power_off`。兜底是 `drivers/firmware/psci/psci.c:618` 的
+  `pm_power_off = psci_sys_poweroff`（PSCI SYSTEM_OFF → ATF）。
+- RK809/RK817 板还有第二条：`drivers/mfd/rk808.c:1533` **仅当** DTS 写
+  `rockchip,system-power-controller` 才注册 `rk808_pm_power_off`（写 SLPPIN_DN_FUN +
+  `pinctrl_select_state("pmic-power-off")`）→ 这才是真正把 PMIC 主输出关掉。
+- **RK806 板（本板 / Easepi R2）没有第二条**：`drivers/mfd/rk806-core.c:630` 只
+  `pinctrl_lookup_state("pmic-power-off")`、**全文件从不 select**；`rk806-spi.c` 也没有
+  `.shutdown`；整棵树找不到任何 rk806 的 `pm_power_off` 注册 ⇒ 加
+  `rockchip,system-power-controller` 也无效，只能走 PSCI/ATF。
+
+官方怎么配的：`rk3588-easepi-r2.dts` 只 include `rk3588-rk806-single.dtsi`，**没有**
+system-power-controller（R1 的 `rk3568-easepi-r1.dts` / `rk3568-roc-k40pro.dtsi` 同样 0 处）
+⇒ **官方 R2 关机也不断主电源**，风扇/网口灯同样亮。
+
+判据（在出问题的机器上跑一次即可定性）：
+
+```bash
+journalctl -b -1 --no-pager | tail -5     # reboot: Power down = 走了 poweroff；System halted = 只 halt
+ls /sys/bus/spi/devices/                  # RK806 在 SPI 上；RK809 在 I2C 上
+```
+
+**本仓决定：不修**（2026-10-31 定案，与官方对齐优先）。要真断电只能给 vendor 内核打
+rk806 的 poweroff 补丁（照 `rk808.c` 写法注册 SYS_OFF + select 那个已经备好但没人用的
+`pmic-power-off` pinctrl state），那属于**有意偏离官方**的内核改动，未做。
+
 ## AI 服务：官方镜像里同样没有模型（实测）
 
 对比 `iNextOSA_26.2.1_Easepi-r2_..._minimal.img`（官方，能"跑 AI"）与 H88K 那份：
