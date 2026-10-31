@@ -269,11 +269,12 @@ jobs:
           ls -l /tmp/rk3588-hinlink-h88k.dtb
           md5sum /tmp/rk3588-hinlink-h88k.dtb
 
-      - name: 板级 DTB 断言（字节级：EEE / 时序两处本仓改过的地方）
-        # 只断本仓改过的两项（判据边界见技能 §24）：
+      - name: 板级 DTB 断言（字节级：本仓只改了千兆 PHY 的 EEE）
+        # 只断本仓改过的那一处（判据边界见技能 §24）：
         #   ① 千兆 PHY 节点有 eee-broken-1000t（1G EEE 关闭；属性名在 DTB strings 段）
-        #   ② phy-mode 是 rgmii 而不是 rgmii-id（rgmii-id 在 rk3568 dwmac 上会清零 MAC 侧延迟，
-        #      实测 56B 丢 65% / 1400B 丢 90%，而接口错误计数为 0）
+        #   ② 不得出现 rgmii-id（rk dwmac 会清零 MAC 侧延迟：56B 丢 65% / 1400B 丢 90%）
+        #   注：本板 phy-mode 是上游原值 "rgmii-rxid"（DTS 从内核树 fork，唯一改动是 EEE），
+        #       实机网络正常 ⇒ 不断言它的取值，改了它反而是自造偏差
         run: |
           set -e
           python3 - /tmp/rk3588-hinlink-h88k.dtb <<'PY'
@@ -283,8 +284,7 @@ jobs:
           assert d[:4] == b'\xd0\x0d\xfe\xed', '不是 FDT（魔数不对）: %r' % d[:4]
           assert b'eee-broken-1000t' in d, 'DTB 里没有 eee-broken-1000t（千兆 EEE 没关，实机会静默收不到包）'
           assert b'rgmii-id' not in d, 'DTB 里仍有 rgmii-id（会把 MAC 侧 tx/rx delay 清零）'
-          assert b'rgmii\x00' in d, 'DTB 里没有 phy-mode="rgmii"'
-          print('    ✅ eee-broken-1000t 在位 / 无 rgmii-id / phy-mode=rgmii')
+          print('    ✅ eee-broken-1000t 在位 / 无 rgmii-id')
           PY
 
       - name: 上传 DTB（本机可复核，也是整机构建的对照件）
