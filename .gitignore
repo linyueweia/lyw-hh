@@ -3,3 +3,5 @@ _bin/
 *.log
 job*.json
 runs.json
+roceos-payload.tar.gz
+.roceos-sync.env
