@@ -19,7 +19,7 @@
 # ══════════════════════════════════════════════════════════════════════════
 
 # 载荷 sha256（= lyw-OS release roceos-payload-v2；内容一变就报错）
-ROCEOS_PAYLOAD_SHA256="919fe649d711c2f2698484820789fefe209ae680443106c08318dc3b4e364e4c"
+ROCEOS_PAYLOAD_SHA256="1a1b658b26835a7c62dd7bc4365c3f44e5e4dc8cc4d6ea2208bab0b4eb6cacc1"
 
 function post_post_debootstrap_tweaks__lyw_hh_roceos() {
 	display_alert "Installing roceos web UI (Hinlink H88K)" "$EXTENSION" "info"
